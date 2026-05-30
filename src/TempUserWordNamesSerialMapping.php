@@ -17,14 +17,10 @@ use WANObjectCache;
 use Wikimedia\LightweightObjectStore\ExpirationAwareness;
 
 class TempUserWordNamesSerialMapping implements SerialMapping {
-    private LoggerInterface $logger;
-    private Config $config;
-    private WANObjectCache $objectCache;
-    private RevisionStoreFactory $revisionStoreFactory;
-	private PageStoreFactory $pageStoreFactory;
+    private readonly LoggerInterface $logger;
 
     /** @var string[] */
-    private array $defaultWords = [
+    private const DEFAULT_WORDS = [
         'Apple', 'Banana', 'Cherry', 'Grape', 'Peach', 'Pear', 'Strawberry', 'Watermelon', 'Apricot', 'Blueberry',
         'Orange', 'Tomato', 'Plum', 'Lime', 'Lemon', 'Bread', 'Egg', 'Fish', 'Garlic', 'Sugar', 'Bagel', 'Tofu',
         'Muffin', 'Cake', 'Perfect', 'Cheerful', 'Generous', 'Friendly', 'Happy', 'Important', 'Great', 'Real',
@@ -32,35 +28,31 @@ class TempUserWordNamesSerialMapping implements SerialMapping {
         'Silly', 'Red', 'Yellow', 'Green', 'Blue', 'Orange', 'Purple', 'Pink', 'Cyan', 'Magenta', 'Fluorescent'
     ];
 
-    private int $offset;
-    private int $numWords;
-    private array $words = [];
-    private bool $useIndex;
+    private readonly int $offset;
+    private readonly int $numWords;
+    private readonly array $words;
+    private readonly bool $useIndex;
 
     public function __construct(
-        array $config,
-        Config $mainConfig,
-        WANObjectCache $objectCache,
-        RevisionStoreFactory $revisionStoreFactory,
-		PageStoreFactory $pageStoreFactory
+        array $serialMappingConfig,
+        private readonly Config $config,
+        private readonly WANObjectCache $objectCache,
+        private readonly RevisionStoreFactory $revisionStoreFactory,
+		private readonly PageStoreFactory $pageStoreFactory
     ) {
         $this->logger = LoggerFactory::getInstance( 'TempUserWordNames' );
-        $this->config = $mainConfig;
-        $this->objectCache = $objectCache;
-        $this->revisionStoreFactory = $revisionStoreFactory;
-		$this->pageStoreFactory = $pageStoreFactory;
 
-        $this->offset = $config['offset'] ?? 0;
-        $this->numWords = $mainConfig->get( 'TempUserWordNamesLength' );
-        $this->words = $this->getWordList();
-        $this->useIndex = $mainConfig->get( 'TempUserWordNamesUseIndex' );
+        $this->offset = $serialMappingConfig['offset'] ?? 0;
+        $this->numWords = $this->config->get( 'TempUserWordNamesLength' );
+        $this->words = $this->loadWordList();
+        $this->useIndex = $this->config->get( 'TempUserWordNamesUseIndex' );
     }
 
     public function getWordList(): array {
-        if ( !empty( $this->words ) ) {
-            return $this->words;
-        }
+        return $this->words;
+    }
 
+    private function loadWordList(): array {
         $listConfig = $this->config->get( 'TempUserWordNamesList' );
         if ( !$listConfig ) {
             throw new InvalidArgumentException( '$wgTempUserNamesList must be defined!' );
@@ -85,7 +77,7 @@ class TempUserWordNamesSerialMapping implements SerialMapping {
 						->getPageStore( $targetWikiIsCurrentWiki ? WikiAwareEntity::LOCAL : $targetWiki )
 						->getPageByText( $pageName );
                     $rev = $this->revisionStoreFactory
-						->getRevisionStore($targetWikiIsCurrentWiki ? WikiAwareEntity::LOCAL : $targetWiki )
+						->getRevisionStore( $targetWikiIsCurrentWiki ? WikiAwareEntity::LOCAL : $targetWiki )
                         ->getRevisionByTitle( $page );
                     $content = $rev?->getContent( SlotRecord::MAIN );
                     if ( !$content ) {
@@ -105,17 +97,16 @@ class TempUserWordNamesSerialMapping implements SerialMapping {
 
             if ( empty( $words ) ) {
                 $this->logger->warning( "Configured word list is empty. Using fallback list." );
-                $words = $this->defaultWords;
+                $words = self::DEFAULT_WORDS;
             }
         }
 
         if ( $this->numWords <= 0 || $this->numWords > count( $words ) ) {
             $this->logger->warning( '$wgTempUserWordNamesLength is less than 1 or more than the length of the list.' .
                 ' Using fallback list.' );
-            $words = $this->defaultWords;
+            $words = self::DEFAULT_WORDS;
         }
 
-        $this->words = $words;
         return $words;
     }
 
